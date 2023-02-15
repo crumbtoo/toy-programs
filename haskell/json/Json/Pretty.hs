@@ -4,32 +4,20 @@ module Json.Pretty where
 
 unroll :: String -> String
 unroll "" = ""
-unroll (s:st) =
-    case s of
-        '{' ->
-            "{\n" ++ unroll st
-
-        '}' ->
-            "\n}" ++ unroll st
-
-        '[' ->
-            "[\n" ++ unroll st
-
-        ']' ->
-            "\n]" ++ unroll st
-
-        ',' ->
-            ",\n" ++ unroll st
-
-        ':' -> -- append a newline if followed by an opening brace
-            ':' : (let nxt = head st in
-                if nxt == '{' || nxt == '[' then "\n" else "") ++ unroll st
-
-        ' ' ->
-            unroll st
-
-        _ ->
-            s : unroll st
+unroll (s:st)
+    | s == '{' || s == '[' =
+        s : '\n' : unroll st
+    | s == '}' || s == ']' =
+        '\n' : s : unroll st
+    | s == ',' =
+        ",\n" ++ unroll st
+    | s == ':' = -- append a newline if followed by an opening brace
+        ':' : (let nxt = head st in
+            if nxt == '{' || nxt == '[' then "\n" else "") ++ unroll st
+    | s == ' ' =
+        unroll st
+    | otherwise = 
+        s : unroll st
 
 showDepth :: Int -> String
 showDepth 0 = ""
@@ -60,4 +48,4 @@ space (s:w@(c:st)) = if s == ':' && c /= '\n'
                else s : space w
 
 beautify :: String -> String
-beautify s = (space.indent.unroll) s
+beautify s = (indent.unroll) s
