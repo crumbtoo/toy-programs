@@ -1,2 +1,4 @@
+HCFLAGS := -dynamic \
+		   -cpp
 all:
-	ghc -dynamic Json/Json.hs
+	ghc $(HCFLAGS) Json/Json.hs
