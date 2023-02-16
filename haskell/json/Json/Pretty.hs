@@ -5,10 +5,14 @@ module Json.Pretty where
 unroll :: String -> String
 unroll "" = ""
 unroll (s:st)
+    -- add newlines after opening braces
     | s == '{' || s == '[' =
         s : '\n' : unroll st
+    -- add newline before closing braces because theres no comma
+    -- (resulting in Allman-style braces)
     | s == '}' || s == ']' =
         '\n' : s : unroll st
+    -- add a newline after every 
     | s == ',' =
         ",\n" ++ unroll st
     | s == ':' = -- append a newline if followed by an opening brace
