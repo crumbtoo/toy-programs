@@ -14,11 +14,11 @@ type JSON_Object = [(String, JS_Value)]
 
 instance Show JS_Value where
     show JS_Null = "null"
-    show (JS_String s) = show s
-    show (JS_Number x) = show x
-    show (JS_Array x) = show x
+    show (JS_String s) = printf "JS_String: %s" s
+    show (JS_Number x) = printf "JS_Number: %f" x
+    show (JS_Array x) = printf "JS_Array: %s" $ show x
     show (JS_Object x) = printf "{%s}" $ showFields x
-    show (JS_Bool x) = show x
+    show (JS_Bool x) = printf "JS_Bool: %s" $ show x
 
 showFields :: JSON_Object -> String
 showFields [(k,v)] = printf "\"%s\":%s" k (show v) :: String

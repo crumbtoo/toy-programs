@@ -3,6 +3,7 @@ module Json.Parse where
 import Json
 
 import Data.Char
+import Data.Bits
 
 deserialise :: String -> Maybe JS_Value
 deserialise s = parseElement s
@@ -26,19 +27,42 @@ parseObject s = Nothing
 parseArray :: String -> Maybe JS_Value
 parseArray s = Nothing
 
--- takeLeadQuote :: String -> Maybe String
--- takeLeadQuote ('"':st) = Just st
--- takeLeadQuote _ = Nothing
+parseCharacters :: String -> String
+parseCharacters "" = ""
 
--- parseCharacter :: String -> Maybe Char
--- parseCharacter (s:st)
---     | ord s >= 0x20 && ord s <= 0x10FFFF = Just s
+parseCharacters ('\\':'u':w:x:y:z:st)
+    | allAreHex = (chr $ ((digitToInt w) * 16^3) +
+                         ((digitToInt x) * 16^2) +
+                         ((digitToInt y) * 16^1) +
+                         ((digitToInt z) * 16^0))
+                   : parseCharacters st
+    | otherwise = 'u' : w : x : y : z : parseCharacters st
 
--- parseCharacters :: String -> Maybe String
--- parseCharacters (s:st) = parseCharacter s : parseCharacters st
+    where allAreHex = and $ map (flip elem $ hexabet) [w,x,y,z]
+          hexabet = ['A'..'F'] ++ ['a'..'f'] ++ ['0'..'9']
+                  
+parseCharacters ('\\':s:st)
+    | s == '"'  = '"'  : parseCharacters st
+    | s == '\\' = '\\' : parseCharacters st
+    | s == '/'  = '/'  : parseCharacters st
+    | s == 'b'  = '\b' : parseCharacters st
+    | s == 'f'  = '\f' : parseCharacters st
+    | s == 'n'  = '\n' : parseCharacters st
+    | s == 'r'  = '\r' : parseCharacters st
+    | s == 't'  = '\t' : parseCharacters st
+    | otherwise = s : parseCharacters st
+
+parseCharacters (s:st) =
+    if (ord s `inRange` (0x20, 0x10ffff)) && (s /= '"' && s /= '\\')
+    then s : parseCharacters st
+    else ""
+
+    where c `inRange` (a,b) = c >= a && c <= b
 
 parseString :: String -> Maybe JS_Value
-parseString s = Just $ JS_String $ "strrring"
+parseString (s:st) = if s == '"'
+                     then Just $ JS_String $ parseCharacters st
+                     else Nothing
 
 -- number := integer fraction exponent
 parseNumber :: String -> Maybe JS_Value
