@@ -6,7 +6,7 @@ import Data.Char
 import Data.Bits
 
 deserialise :: String -> Maybe JS_Value
-deserialise s = parseElement s
+deserialise = parseElement
 
 -- JSON whitespace characters are <space>, <newline>,
 -- <carriage-return>, and <horizontal-tab>
@@ -18,20 +18,52 @@ isWhitespace c = (c == '\x0020' ||
 
 trim :: String -> String
 trim = (trimStart.trimEnd)
-    where trimStart whole@(s:st) = if isWhitespace s
-                                   then trimStart st
-                                   else whole
-          trimEnd s = (reverse.trimStart.reverse) s
+
+trimStart :: String -> String
+trimStart s = dropWhile isWhitespace s
+
+trimEnd :: String -> String
+trimEnd s = (reverse.trimStart.reverse) s
 
 -- element := whitespace value whitespace
 parseElement :: String -> Maybe JS_Value
-parseElement s = (parseValue.trim) s
+parseElement s = if trimmed == ""
+                 then Nothing
+                 else parseValue trimmed
+
+                 where trimmed = trim s
 
 -- object := '{' whitespace '}'
 --         | '{' members '}'
 parseObject :: String -> Maybe JS_Value
-parseObject s = Nothing
-    -- | filter isWhitespace s
+-- don't use `last` on empty list
+parseObject (_:[]) = Nothing
+parseObject (s:st) = if s == '{' && last st == '}' then
+                         if hasContent then
+                             parseMembers inside
+                         else
+                             Just $ JS_Object []
+                     else
+                         Nothing
+
+                     -- `hasContent` is true if there are non-whitespace
+                     -- characters between the braces. we do not know yet
+                     -- if they are valid members.
+                     where hasContent = (filter (not.isWhitespace) inside) /= ""
+                           inside = take (length st - 1) st
+
+-- members := member
+--          | member ',' members
+parseMembers :: String -> Maybe JS_Value
+parseMembers s = Just $ (\(Just x) -> JS_Object [x]) $ parseMember s
+
+-- member := key ':' element
+parseMember :: String -> Maybe (String, JS_Value)
+parseMember s = Just $ (parseKey s, JS_Null)
+
+-- key := ws string ws
+parseKey :: String -> String
+parseKey s = (\(Just (JS_String x)) -> x) $ (parseString.trimStart) s
 
 parseArray :: String -> Maybe JS_Value
 parseArray s = Nothing
@@ -84,17 +116,16 @@ parseCharacters (s:st) =
 
 -- string := '"' characters '"'
 parseString :: String -> Maybe JS_Value
-parseString (s:st) = if s == '"' && last st == '"'
-                     then Just $ JS_String $ parseCharacters inside
+parseString (_:[]) = Nothing
+parseString (s:st) = if s == '"'
+                     then Just $ JS_String $ parseCharacters st
                      else Nothing
-
-                     -- `st` is already past the leading quote
-                     where inside = take (length st - 1) st
 
 -- number := integer fraction exponent
 parseNumber :: String -> Maybe JS_Value
 parseNumber s = Nothing
 
+-- value := object | array | string | number | true | false | null
 parseValue :: String -> Maybe JS_Value
 parseValue w@(s:st)
     | s == '{'                  = parseObject w
