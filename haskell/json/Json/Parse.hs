@@ -8,9 +8,17 @@ import Data.Bits
 deserialise :: String -> Maybe JS_Value
 deserialise s = parseElement s
 
+-- JSON whitespace characters are <space>, <newline>,
+-- <carriage-return>, and <horizontal-tab>
+isWhitespace :: Char -> Bool
+isWhitespace c = (c == '\x0020' ||
+                  c == '\x000a' ||
+                  c == '\x000d' ||
+                  c == '\x0009')
+
 trim :: String -> String
 trim = (trimStart.trimEnd)
-    where trimStart whole@(s:st) = if s == ' ' || s == '\t' || s == '\n' || s == '\r'
+    where trimStart whole@(s:st) = if isWhitespace s
                                    then trimStart st
                                    else whole
           trimEnd s = (reverse.trimStart.reverse) s
@@ -23,13 +31,19 @@ parseElement s = (parseValue.trim) s
 --         | '{' members '}'
 parseObject :: String -> Maybe JS_Value
 parseObject s = Nothing
+    -- | filter isWhitespace s
 
 parseArray :: String -> Maybe JS_Value
 parseArray s = Nothing
 
+-- characters := ""
+--             | character characters
+-- character := ['0020'-'10ffff'] - '\\' - ' '
+--            | '\' escape
 parseCharacters :: String -> String
 parseCharacters "" = ""
 
+-- codepoint escape ('u' hex hex hex hex)
 parseCharacters ('\\':'u':w:x:y:z:st)
     | allAreHex = (chr $ ((digitToInt w) * 16^3) +
                          ((digitToInt x) * 16^2) +
@@ -41,6 +55,15 @@ parseCharacters ('\\':'u':w:x:y:z:st)
     where allAreHex = and $ map (flip elem $ hexabet) [w,x,y,z]
           hexabet = ['A'..'F'] ++ ['a'..'f'] ++ ['0'..'9']
                   
+-- escape := '"'
+--         | '\'
+--         | '/'
+--         | 'b'
+--         | 'f'
+--         | 'n'
+--         | 'r'
+--         | 't'
+--         | 'u' hex hex hex hex
 parseCharacters ('\\':s:st)
     | s == '"'  = '"'  : parseCharacters st
     | s == '\\' = '\\' : parseCharacters st
@@ -59,10 +82,14 @@ parseCharacters (s:st) =
 
     where c `inRange` (a,b) = c >= a && c <= b
 
+-- string := '"' characters '"'
 parseString :: String -> Maybe JS_Value
-parseString (s:st) = if s == '"'
-                     then Just $ JS_String $ parseCharacters st
+parseString (s:st) = if s == '"' && last st == '"'
+                     then Just $ JS_String $ parseCharacters inside
                      else Nothing
+
+                     -- `st` is already past the leading quote
+                     where inside = take (length st - 1) st
 
 -- number := integer fraction exponent
 parseNumber :: String -> Maybe JS_Value
