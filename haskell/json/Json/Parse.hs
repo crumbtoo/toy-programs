@@ -2,6 +2,7 @@ module Json.Parse where
 
 import Json
 
+import Data.Maybe
 import Data.Char
 import Data.Bits
 
@@ -20,10 +21,10 @@ trim :: String -> String
 trim = (trimStart.trimEnd)
 
 trimStart :: String -> String
-trimStart s = dropWhile isWhitespace s
+trimStart = dropWhile isWhitespace
 
 trimEnd :: String -> String
-trimEnd s = (reverse.trimStart.reverse) s
+trimEnd = (reverse.trimStart.reverse)
 
 -- element := whitespace value whitespace
 parseElement :: String -> Maybe JS_Value
@@ -37,7 +38,7 @@ parseElement s = if trimmed == ""
 --         | '{' members '}'
 parseObject :: String -> Maybe JS_Value
 -- don't use `last` on empty list
-parseObject (_:[]) = Nothing
+parseObject [_] = Nothing
 parseObject (s:st) = if s == '{' && last st == '}' then
                          if hasContent then
                              parseMembers inside
@@ -45,7 +46,6 @@ parseObject (s:st) = if s == '{' && last st == '}' then
                              Just $ JS_Object []
                      else
                          Nothing
-
                      -- `hasContent` is true if there are non-whitespace
                      -- characters between the braces. we do not know yet
                      -- if they are valid members.
@@ -59,7 +59,7 @@ parseMembers s = Just $ (\(Just x) -> JS_Object [x]) $ parseMember s
 
 -- member := key ':' element
 parseMember :: String -> Maybe (String, JS_Value)
-parseMember s = Just $ (parseKey s, JS_Null)
+parseMember s = Just (parseKey s, JS_Null)
 
 -- key := ws string ws
 parseKey :: String -> String
@@ -84,7 +84,7 @@ parseCharacters ('\\':'u':w:x:y:z:st)
                    : parseCharacters st
     | otherwise = 'u' : w : x : y : z : parseCharacters st
 
-    where allAreHex = and $ map (flip elem $ hexabet) [w,x,y,z]
+    where allAreHex = all (`elem` hexabet) [w,x,y,z]
           hexabet = ['A'..'F'] ++ ['a'..'f'] ++ ['0'..'9']
                   
 -- escape := '"'
@@ -108,15 +108,16 @@ parseCharacters ('\\':s:st)
     | otherwise = s : parseCharacters st
 
 parseCharacters (s:st) =
-    if (ord s `inRange` (0x20, 0x10ffff)) && (s /= '"' && s /= '\\')
-    then s : parseCharacters st
-    else ""
+    if (ord s `inRange` (0x20, 0x10ffff)) && (s /= '"' && s /= '\\') then
+        s : parseCharacters st
+    else
+        ""
 
     where c `inRange` (a,b) = c >= a && c <= b
 
 -- string := '"' characters '"'
 parseString :: String -> Maybe JS_Value
-parseString (_:[]) = Nothing
+parseString [_]    = Nothing
 parseString (s:st) = if s == '"'
                      then Just $ JS_String $ parseCharacters st
                      else Nothing
@@ -131,7 +132,7 @@ parseValue w@(s:st)
     | s == '{'                  = parseObject w
     | s == '['                  = parseArray w
     | s == '"'                  = parseString w
-    | parseNumber w /= Nothing  = parseNumber w
+    | isJust $ parseNumber w    = parseNumber w
     | w == "true"               = Just (JS_Bool True)
     | w == "false"              = Just (JS_Bool False)
     | w == "null"               = Just JS_Null

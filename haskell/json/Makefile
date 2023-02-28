@@ -1,5 +1,7 @@
 HCFLAGS := -dynamic \
 		   -iJson \
-		   -cpp
+		   -cpp \
+		   -outputdir build
+
 all:
 	ghc $(HCFLAGS) Json/Json.hs
