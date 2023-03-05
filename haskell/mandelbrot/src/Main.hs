@@ -29,11 +29,12 @@ pointToRGB x y =
         cx, cy :: Float
         cx = width / 2.0
         cy = height / 2.0
-        d = sqrt $ (cx - rx)^2 + (cy - ry)^2
+        -- d = sqrt $ (cx - rx)^2 + (cy - ry)^2
         r = 20
         rx = fromIntegral x
         ry = fromIntegral y
-        value = if d < r then 255 else 0
+        value = if ry `near` ((rx-cx)**2) then 255 else 0
+        a `near` b = a / b <= 0.1
 
 mkHeader :: Int -> Int -> String
 mkHeader = printf "P3 %d %d 255\n"
