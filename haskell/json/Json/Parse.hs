@@ -1,139 +1,191 @@
 module Json.Parse where
 
 import Json
-
-import Data.Maybe
-import Data.Char
+import Data.Char (digitToInt, isDigit, isHexDigit, chr, ord)
 import Data.Bits
+import Data.Functor (($>))
+import Control.Applicative
+import Control.Monad
+import Numeric
 
-deserialise :: String -> Maybe JS_Value
-deserialise = parseElement
+-- the Parser type constructor takes a single argument of
+-- type `i -> Maybe (i, o)`
+newtype Parser i o = Parser { runParser :: i -> Maybe (i, o) }
 
--- JSON whitespace characters are <space>, <newline>,
--- <carriage-return>, and <horizontal-tab>
-isWhitespace :: Char -> Bool
-isWhitespace c = (c == '\x0020' ||
-                  c == '\x000a' ||
-                  c == '\x000d' ||
-                  c == '\x0009')
+instance Functor (Parser i) where
+    fmap f parser = Parser $ fmap (fmap f) . runParser parser
 
-trim :: String -> String
-trim = (trimStart.trimEnd)
+instance Applicative (Parser i) where
+    pure x    = Parser $ pure . (, x)
+    pf <*> po = Parser $ \input ->
+        case runParser pf input of
+            Nothing        -> Nothing
+            Just (rest, f) -> fmap f <$> runParser po rest
 
-trimStart :: String -> String
-trimStart = dropWhile isWhitespace
+instance Monad (Parser i) where
+    p >>= f = Parser $ \input -> case runParser p input of
+        Nothing        -> Nothing
+        Just (rest, o) -> runParser (f o) rest
 
-trimEnd :: String -> String
-trimEnd = (reverse.trimStart.reverse)
+instance Alternative (Parser i) where
+    empty = Parser $ const empty
+    p1 <|> p2 = Parser $ \input -> runParser p1 input <|> runParser p2 input
 
--- element := whitespace value whitespace
-parseElement :: String -> Maybe JS_Value
-parseElement s = if trimmed == ""
-                 then Nothing
-                 else parseValue trimmed
+highSurrogateLowerBound, highSurrogateUpperBound :: Int
+highSurrogateLowerBound = 0xD800
+highSurrogateUpperBound = 0xDBFF
 
-                 where trimmed = trim s
+lowSurrogateLowerBound, lowSurrogateUpperBound :: Int
+lowSurrogateLowerBound  = 0xDC00
+lowSurrogateUpperBound  = 0xDFFF
 
--- object := '{' whitespace '}'
---         | '{' members '}'
-parseObject :: String -> Maybe JS_Value
--- don't use `last` on empty list
-parseObject [_] = Nothing
-parseObject (s:st) = if s == '{' && last st == '}' then
-                         if hasContent then
-                             parseMembers inside
-                         else
-                             Just $ JS_Object []
-                     else
-                         Nothing
-                     -- `hasContent` is true if there are non-whitespace
-                     -- characters between the braces. we do not know yet
-                     -- if they are valid members.
-                     where hasContent = (filter (not.isWhitespace) inside) /= ""
-                           inside = take (length st - 1) st
+isHighSurrogate, isLowSurrogate, isSurrogate :: Char -> Bool
+isHighSurrogate a = ord a >= highSurrogateLowerBound && ord a <= highSurrogateUpperBound
+isLowSurrogate a  = ord a >= lowSurrogateLowerBound && ord a <= lowSurrogateUpperBound
+isSurrogate a     = isHighSurrogate a || isLowSurrogate a
 
--- members := member
---          | member ',' members
-parseMembers :: String -> Maybe JS_Value
-parseMembers s = Just $ (\(Just x) -> JS_Object [x]) $ parseMember s
+combineSurrogates :: Char -> Char -> Char
+combineSurrogates a b = chr $
+  ((ord a - highSurrogateLowerBound) `shiftL` 10)
+  + (ord b - lowSurrogateLowerBound) + 0x10000
 
--- member := key ':' element
-parseMember :: String -> Maybe (String, JS_Value)
-parseMember s = Just (parseKey s, JS_Null)
+satisfy :: (a -> Bool) -> Parser [a] a
+satisfy predicate = Parser $ \xs ->
+    case xs of
+        (x:xs) -> if predicate x then Just (xs, x) else Nothing
+        _ -> Nothing
 
--- key := ws string ws
-parseKey :: String -> String
-parseKey s = (\(Just (JS_String x)) -> x) $ (parseString.trimStart) s
+char1 :: Char -> Parser String Char
+char1 c = Parser $ \xs ->
+    case xs of
+        (x:xs) -> if x == c then Just (xs, x) else Nothing
+        _ -> Nothing
 
-parseArray :: String -> Maybe JS_Value
-parseArray s = Nothing
+char :: Char -> Parser String Char
+char c = satisfy (==c)
 
--- characters := ""
---             | character characters
--- character := ['0020'-'10ffff'] - '\\' - ' '
---            | '\' escape
-parseCharacters :: String -> String
-parseCharacters "" = ""
+digit1 :: Parser String Int
+digit1 = Parser $ \i ->
+    case runParser (satisfy isDigit) i of
+        Nothing      -> Nothing
+        Just (i', o) -> Just (i', digitToInt o)
 
--- codepoint escape ('u' hex hex hex hex)
-parseCharacters ('\\':'u':w:x:y:z:st)
-    | allAreHex = (chr $ ((digitToInt w) * 16^3) +
-                         ((digitToInt x) * 16^2) +
-                         ((digitToInt y) * 16^1) +
-                         ((digitToInt z) * 16^0))
-                   : parseCharacters st
-    | otherwise = 'u' : w : x : y : z : parseCharacters st
+digit2 :: Parser String Int
+digit2 = Parser $ \i -> case runParser (satisfy isDigit) i of
+    Nothing      -> Nothing
+    Just (i', o) -> Just $ fmap digitToInt $ (i', o)
 
-    where allAreHex = all (`elem` hexabet) [w,x,y,z]
-          hexabet = ['A'..'F'] ++ ['a'..'f'] ++ ['0'..'9']
-                  
--- escape := '"'
---         | '\'
---         | '/'
---         | 'b'
---         | 'f'
---         | 'n'
---         | 'r'
---         | 't'
---         | 'u' hex hex hex hex
-parseCharacters ('\\':s:st)
-    | s == '"'  = '"'  : parseCharacters st
-    | s == '\\' = '\\' : parseCharacters st
-    | s == '/'  = '/'  : parseCharacters st
-    | s == 'b'  = '\b' : parseCharacters st
-    | s == 'f'  = '\f' : parseCharacters st
-    | s == 'n'  = '\n' : parseCharacters st
-    | s == 'r'  = '\r' : parseCharacters st
-    | s == 't'  = '\t' : parseCharacters st
-    | otherwise = s : parseCharacters st
+-- the outer-most `fmap` applies to the tuple, the
+-- inner-most `fmap` applies to the Maybe.
+--
+-- fmap (+2) (Just 2) == Just 4
+-- fmap (+2) (0,2) == (0,4)
+-- fmap (fmap (+2)) (Just (0,2)) == Just (0,4)
+digit3 :: Parser String Int
+digit3 = Parser $ \i -> fmap (fmap digitToInt) $ runParser (satisfy isDigit) $ i
 
-parseCharacters (s:st) =
-    if (ord s `inRange` (0x20, 0x10ffff)) && (s /= '"' && s /= '\\') then
-        s : parseCharacters st
-    else
-        ""
+digit :: Parser String Int
+digit = digitToInt <$> satisfy isDigit
 
-    where c `inRange` (a,b) = c >= a && c <= b
+string1 :: String -> Parser String String
+string1 ""     = Parser $ \i -> Just (i, "")
+string1 (c:cs) = Parser $ \i ->
+    case runParser (char c) i of
+        Nothing        -> Nothing
+        Just (rest, _) ->
+            case runParser (string1 cs) rest of
+                Nothing -> Nothing
+                Just (rest', _) -> Just (rest', c:cs)
 
--- string := '"' characters '"'
-parseString :: String -> Maybe JS_Value
-parseString [_]    = Nothing
-parseString (s:st) = if s == '"'
-                     then Just $ JS_String $ parseCharacters st
-                     else Nothing
+string2 :: String -> Parser String String
+string2 s = case s of
+    ""     -> Parser $ pure . (, "")
+    (c:cs) -> Parser $ \i ->
+        case runParser (char c) i of
+            Nothing        -> Nothing
+            Just (rest, c) -> fmap (c:) <$> runParser (string2 cs) rest
 
--- number := integer fraction exponent
-parseNumber :: String -> Maybe JS_Value
-parseNumber s = Nothing
+string :: String -> Parser String String
+string "" = pure ""
+string (c:cs) = (:) <$> char c <*> string cs
 
--- value := object | array | string | number | true | false | null
-parseValue :: String -> Maybe JS_Value
-parseValue w@(s:st)
-    | s == '{'                  = parseObject w
-    | s == '['                  = parseArray w
-    | s == '"'                  = parseString w
-    | isJust $ parseNumber w    = parseNumber w
-    | w == "true"               = Just (JS_Bool True)
-    | w == "false"              = Just (JS_Bool False)
-    | w == "null"               = Just JS_Null
-    | otherwise                 = Nothing
+jNull :: Parser String JS_Value
+jNull = string "null" $> JS_Null
+
+jBool :: Parser String JS_Value
+jBool = string "true" $> JS_Bool True <|> string "false" $> JS_Bool False
+
+jsonEscape1 :: Parser String Char
+jsonEscape1 = Parser $ \(c:cs) ->
+    case c of
+        '"'   ->  Just      (cs,  '"')
+        '\\'  ->  Just      (cs,  '\\')
+        '/'   ->  Just      (cs,  '/')
+        'b'   ->  Just      (cs,  '\b')
+        'f'   ->  Just      (cs,  '\f')
+        'n'   ->  Just      (cs,  '\n')
+        't'   ->  Just      (cs,  '\t')
+        'u'   ->  runParser (fourHex) cs
+        _     ->  Nothing
+    where
+        fourHex :: Parser String Char
+        fourHex = Parser $ \s ->
+            case s of
+                -- i seriously went for the greek alphabet
+                -- before choosing to use more than one
+                -- character in a variable name. oh my god.
+                w@(α:β:γ:δ:ω) | all isHexDigit w ->
+                    Just (ω, chr.fst.head.readHex $ w)
+                _ ->
+                    Nothing
+
+jsonChar1 :: Parser String Char
+jsonChar1 = Parser $ \(c:cs) ->
+    case c of
+        '"' ->
+            Nothing
+        '\\' ->
+            runParser jsonEscape1 cs
+        c | c `inInterval` ('\x20','\x10ffff') ->
+            Just (cs,c)
+        _ ->
+            Nothing
+    where x `inInterval` (a,b) = (x >= a) && (x <= b)
+
+jsonEscape :: Parser String Char
+jsonEscape =   char '"' $> '"'
+           <|> char '/' $> '/'
+           <|> char 'b' $> '\b'
+           <|> char 'f' $> '\f'
+           <|> char 'n' $> '\n'
+           <|> char 'r' $> '\r'
+           <|> char 't' $> '\t'
+           <|> Parser (\('u':w@(_:_:_:_:ω)) ->
+               if all isHexDigit w then
+                   Just (ω, chr.fst.head.readHex $ w)
+               else Nothing)
+           <|> Parser (const Nothing)
+
+-- jsonChar :: String -> Maybe (String, Char)
+jsonChar :: Parser String Char
+jsonChar =   char '\\' *> jsonEscape
+         <|> satisfy (\c -> c `inInterval` ('\x20','\x10ffff') && c /= '"' && c /= '\\')
+    where x `inInterval` (a,b) = (x >= a) && (x <= b)
+
+jsString :: Parser String JS_Value
+jsString = JS_String <$> (char '"' *> jsString')
+    where
+        jsString' = do
+            optFirst <- optional jsonChar
+            case optFirst of
+                Nothing ->
+                    "" <$ char '"'
+                Just first | not (isSurrogate first) ->
+                    (first:) <$> jsString'
+                Just first -> do
+                    second <- jsonChar
+                    if isHighSurrogate first && isLowSurrogate second then
+                        (combineSurrogates first second :) <$> jsString'
+                    else
+                        empty
+

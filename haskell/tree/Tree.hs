@@ -7,7 +7,7 @@ module Tree
 , printTree
 ) where
 
-import Text.Printf
+import Text.Printf (printf, PrintfArg)
 
 data Tree a = EmptyNode | Node a (Tree a) (Tree a)
     deriving (Show, Read, Eq)
@@ -52,8 +52,12 @@ printTree' (Node a l r) depth name = do
     printTree' l (depth + 1) "Left"
     printTree' r (depth + 1) "Right"
 
-    
-
 printTree :: (PrintfArg a) => Tree a -> IO ()
 printTree t = printTree' t 0 "Root"
 
+instance Functor Tree where
+    fmap :: (a -> b) -> Tree a -> Tree b
+    fmap f EmptyNode    = EmptyNode
+    fmap f (Node a l r) = Node (f a) (fmap f l) (fmap f r)
+
+-- instance Applicative Tree where

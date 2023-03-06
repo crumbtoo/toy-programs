@@ -1,30 +1,52 @@
 module Json where
 
+import Data.Char hiding (isControl)
+import Data.List
 import Text.Printf
 
 data JS_Value = JS_Null
-              | JS_String String
-              | JS_Number Double
-              | JS_Array [JS_Value]
-              | JS_Object [(String, JS_Value)]
-              | JS_Bool Bool
-              deriving (Eq, Ord)
-
-type JSON_Object = [(String, JS_Value)]
+            | JS_Bool Bool
+            | JS_String String
+            | JS_Number { int :: Integer, frac :: [Int], exponent :: Integer }
+            | JS_Array [JS_Value]
+            | JS_Object [(String, JS_Value)]
+            deriving (Eq)
 
 instance Show JS_Value where
-    show JS_Null = "JS_Null"
-    show (JS_String s) = printf "JS_String: \"%s\"" s
-    show (JS_Number x) = printf "JS_Number: %f" x
-    show (JS_Array x) = printf "JS_Array: %s" $ show x
-    show (JS_Object x) = printf "{%s}" $ showFields x
-    show (JS_Bool x) = printf "JS_Bool: %s" $ show x
+  show value = case value of
+    JS_Null          -> "null"
+    JS_Bool True     -> "true"
+    JS_Bool False    -> "false"
+    JS_String s      -> showJSONString s
+    JS_Number s [] 0 -> show s
+    JS_Number s f 0  -> show s ++ "." ++ concatMap show f
+    JS_Number s [] e -> show s ++ "e" ++ show e
+    JS_Number s f e  -> show s ++ "." ++ concatMap show f ++ "e" ++ show e
+    JS_Array a       -> "[" ++ intercalate ", " (map show a) ++ "]"
+    JS_Object o      -> "{" ++ intercalate ", " (map showKV o) ++ "}"
+    where
+      showKV (k, v) = showJSONString k ++ ": " ++ show v
 
-showFields :: JSON_Object -> String
-showFields [] = ""
-showFields [(k,v)] = printf "\"%s\":%s" k (show v) :: String
-showFields ((k,v):xs) = printf "\"%s\":%s,%s" k (show v) (showFields xs) :: String
+showJSONString :: String -> String
+showJSONString s = "\"" ++ concatMap showJSONChar s ++ "\""
 
-serialise :: JS_Value -> String
-serialise = show
+isControl :: Char -> Bool
+isControl c = c `elem` ['\0' .. '\31']
 
+showJSONChar :: Char -> String
+showJSONChar c = case c of
+    '\'' -> "'"
+    '\"' -> "\\\""
+    '\\' -> "\\\\"
+    '/'  -> "\\/"
+    '\b' -> "\\b"
+    '\f' -> "\\f"
+    '\n' -> "\\n"
+    '\r' -> "\\r"
+    '\t' -> "\\t"
+    _ | isControl c -> "\\u" ++ showJSONNonASCIIChar c
+    _ -> [c]
+    where
+        showJSONNonASCIIChar c =
+            let a = "0000" ++ showHex (ord c) "" in drop (length a - 4) a
+        showHex = printf "%x"
