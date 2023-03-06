@@ -60,11 +60,7 @@ main = do
         ) points
 
 pointToRGB :: Int -> Int -> Int -> Int -> RGB
-pointToRGB width height x y =
-    ( value
-    , value
-    , value
-    )
+pointToRGB width height x y = value
     where
         c :: Complex Double
         c = rx :+ ry
@@ -75,6 +71,8 @@ pointToRGB width height x y =
         -- infinite list of mandelbrot iterations
         m = iterate (f c) 0
 
+        grad = gradient 255 (0,0,0) (255,0,0)
+
         isInfiniteC :: RealFloat a => Complex a -> Bool
         isInfiniteC n = ((isInfinite <$> n) == False :+ False)
 
@@ -82,9 +80,28 @@ pointToRGB width height x y =
 
         value
             -- appears non-divergent
-            | noninf `longerThan` 50     = 0
+            | noninf `longerThan` 50     = (0,0,0)
             -- possibly divergent
-            | otherwise                  = round $ 255 * (fromIntegral (length noninf) / 50)
+            | otherwise                  =
+                (round $ 255 * (fromIntegral (length noninf) / 50)
+                , 0
+                , 0
+                )
+
+gradient :: (RealFrac a) => a -> RGB -> RGB -> (a -> RGB)
+gradient run (r,g,b) (ρ,γ,β) =
+    (\x ->
+        ( round $ fitLinear run (fromIntegral r) (fromIntegral ρ) $ x
+        , round $ fitLinear run (fromIntegral g) (fromIntegral γ) $ x
+        , round $ fitLinear run (fromIntegral b) (fromIntegral β) $ x
+        )
+    )
+    where
+        fitLinear :: (RealFrac a) => a -> a -> a -> (a -> a)
+        fitLinear run from to = \x -> from + x * (abs (to - from) / run)
+
+-- fitLinear :: (RealFrac a) => a -> a -> a -> (a -> a)
+-- fitLinear run from to = \x -> 0
 
 -- mandelbrot function
 f :: (Num a, RealFloat a) => Complex a -> Complex a -> Complex a
