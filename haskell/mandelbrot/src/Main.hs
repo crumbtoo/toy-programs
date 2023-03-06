@@ -3,12 +3,13 @@ module Main where
 import System.IO
 import Control.Monad
 import Text.Printf
+import Data.Complex
 
 type RGB = (Int, Int, Int)
 
 width, height :: Num a => a
-width = 128
-height = 128
+width = 16654
+height = 8192
 
 main :: IO ()
 main = do
@@ -26,15 +27,31 @@ pointToRGB x y =
     , value
     )
     where
-        cx, cy :: Float
-        cx = width / 2.0
-        cy = height / 2.0
-        -- d = sqrt $ (cx - rx)^2 + (cy - ry)^2
-        r = 20
-        rx = fromIntegral x
-        ry = fromIntegral y
-        value = if ry `near` ((rx-cx)**2) then 255 else 0
-        a `near` b = a / b <= 0.1
+        c :: Complex Double
+        c = rx :+ ry
+        -- adjust to get the origin at the center of the image :3
+        rx = (fromIntegral x / (height / 2)) - 2.5
+        ry = (fromIntegral y / (height / 2)) - 1
+
+        -- infinite list of mandelbrot iterations
+        m = iterate (f c) 0
+
+        isInfiniteC :: RealFloat a => Complex a -> Bool
+        isInfiniteC n = ((isInfinite <$> n) == False :+ False)
+
+        value =
+            -- if it hasn't diverged after 50 iterations, colour it white
+            if takeWhile isInfiniteC m `longerThan` 50
+            then 255
+            else 0
+
+-- mandelbrot function
+f :: (Num a, RealFloat a) => Complex a -> Complex a -> Complex a
+f c z = z^2 + c
+
+-- semantics: this will return true if length ls == n
+longerThan :: [a] -> Int -> Bool
+ls `longerThan` n = length (take n ls) == n
 
 mkHeader :: Int -> Int -> String
 mkHeader = printf "P3 %d %d 255\n"
